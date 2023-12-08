@@ -7,6 +7,11 @@ import (
 
 func eval(line *string) {
 
+	_, bg := parseline(line)
+
+	if bg {
+
+	}
 }
 
 func parseline(line *string) ([]string, bool) {
