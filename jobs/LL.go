@@ -9,54 +9,43 @@ type Job struct {
 	Pid   int
 	Cmd   string
 	State int
-	Next  *Job
 }
 
 type Jobs struct {
-	head *Job
+	JobList []Job
 }
 
 func InitJobs() *Jobs {
 	return new(Jobs)
 }
 
-
-
-func (jobs *Jobs) AddJob(job *Job) {
-	if jobs.head == nil {
-		jobs.head = job
-		return
-	}
-
-	current := jobs.head
-	for current.Next != nil {
-		current = current.Next
-	}
-
-	current.Next = job
+func (jobs *Jobs) AddJob(job Job) {
+	jobs.JobList = append(jobs.JobList, job)
 }
 
-func (jobs *Jobs) DeleteJob(pid int) {
-	if jobs.head.Pid == pid {
-		jobs.head = jobs.head.Next
+func (jobs *Jobs) GetJob(pid int) *Job {
+	for _, job := range jobs.JobList {
+		if job.Pid == pid {return &job}
 	}
+	return nil
+}
 
-	var prev *Job = nil
-	current := jobs.head
+func (jobs *Jobs) RemoveJob(jobToRemove Job) {
+	for idx, job := range jobs.JobList {
+		if job == jobToRemove {
+			jobs.JobList = append(jobs.JobList[:idx], jobs.JobList[idx+1:]...)
+			return
+		}
+	}	
+}
 
-	for current.Pid != pid {
-		prev = current
-		current = current.Next
-	}
-
-	prev.Next = current
+func (job *Job) ChangeState(newState int) {
+	job.State = newState
 }
 
 func (jobs *Jobs) PrintJobs() {
-	current := jobs.head
-
-	for current.Next != nil {
-		fmt.Fprintf(os.Stderr, "%+v\n", current)
-		current = current.Next
+	fmt.Fprintf(os.Stderr, "Jobs:\n")
+	for idx, job := range jobs.JobList {
+		fmt.Fprintf(os.Stderr, "%d. %d %d %s\n", idx, job.State, job.Pid, job.Cmd)
 	}
 }
