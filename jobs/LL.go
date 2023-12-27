@@ -40,7 +40,16 @@ func (jobs *Jobs) RemoveJob(jobToRemove Job) {
 }
 
 func (job *Job) ChangeState(newState int) {
+	// fmt.Println("HERE STTATE", job.State)
 	job.State = newState
+	// fmt.Println("HERE STTATE 2", job.State)
+}
+
+func (jobs *Jobs) GetForegroundJob() *Job {
+	for _, job := range jobs.JobList {
+		if job.State == 1 {return &job}
+	}
+	return nil
 }
 
 func (jobs *Jobs) PrintJobs() {

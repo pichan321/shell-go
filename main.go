@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	j "shell/jobs"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -19,12 +20,14 @@ const (
 	STP = 3
 )
 
+var mutex sync.Mutex
+
 func eval(line *string) {
 
 	parsedLine, bg := parseline(line)
 
 	handleBuiltIns(&parsedLine)
-	dir := "/bin/"
+	// dir := "/bin/"
 	if bg {
 		cmd := exec.Command(parsedLine[0], parsedLine...)
 		cmd.Stdout = os.Stdout
@@ -47,8 +50,10 @@ func eval(line *string) {
 		return
 	}
 
-	cmd := exec.Command(dir+"/"+parsedLine[0], parsedLine[1:]...)
+	cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine[1:]...) //dir+"/"+parsedLine[0]
 	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 
 	err := cmd.Start()
 	if err != nil {
@@ -56,6 +61,10 @@ func eval(line *string) {
 		return
 	}
 	pid := cmd.Process.Pid
+
+	// if pid == 0 {
+	
+	// }
 
 	jobs.AddJob(j.Job{
 		Pid:   pid,
@@ -75,9 +84,16 @@ func waitForeground(pid int) {
 		return
 	}
 
-	for job.State == FG {
-		time.Sleep(time.Millisecond * 100) //keep asking for update every 100 ms
-		if job = jobs.GetJob(pid); job == nil {return}
+	for job.State == FG && job.Pid == pid {
+		time.Sleep(time.Second * 1) //keep asking for update every 500 ms
+
+		job := jobs.GetJob(pid)
+		if job == nil {
+			return
+		}
+		if job.State == STP {
+			return
+		}
 	}
 }
 
@@ -118,25 +134,52 @@ func handleSIGCHLD(sig os.Signal) {
 		}
 		job := jobs.GetJob(pid)
 
-		if status.Exited() {
+		if status.Exited() || status.Signaled() {
 			jobs.RemoveJob(*job)
-
-			fmt.Println("Status: ", status, "PID: ", pid)
+			fmt.Println("removed", jobs)
 			return
 		}
 
 		if status.Stopped() {
+			fmt.Println("Before", job)
+			// job.State = 3
 			job.ChangeState(STP)
+			fmt.Println("After", job)
 			return
 		}
 
-		// if status.Continued() {
-		// 	job.ChangeState(R)
-		// 	return
-		// }
+		if status.Continued() {
+			return
+		}
 
 	}
 
+}
+
+func handleSigIntSigKill() {
+	job := jobs.GetForegroundJob()
+	if job == nil {
+		return
+	}
+
+	process, err := os.FindProcess(job.Pid)
+	if err != nil {
+		return
+	}
+	syscall.Kill(process.Pid, syscall.SIGKILL)
+}
+
+func handleSigStop() {
+	job := jobs.GetForegroundJob()
+	if job == nil {
+		return
+	}
+
+	process, err := os.FindProcess(job.Pid)
+	if err != nil {
+		return
+	}
+	syscall.Kill(process.Pid, syscall.SIGTSTP)
 }
 
 func handleSig(sig chan os.Signal) {
@@ -145,9 +188,9 @@ func handleSig(sig chan os.Signal) {
 		case incoming := <-sig:
 			switch incoming {
 			case syscall.SIGINT:
-				os.Exit(0)
-			case syscall.SIGKILL:
-				os.Exit(0)
+				handleSigIntSigKill()
+			case syscall.SIGTSTP:
+				handleSigStop()
 			case syscall.SIGCHLD:
 				handleSIGCHLD(incoming)
 
@@ -156,8 +199,9 @@ func handleSig(sig chan os.Signal) {
 	}
 }
 
+
 func main() {
-	sig := make(chan os.Signal)
+	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGCHLD, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTSTP)
 	go handleSig(sig)
 
