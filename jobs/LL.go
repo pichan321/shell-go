@@ -61,8 +61,9 @@ func (jobs *Jobs) GetForegroundJob() *Job {
 }
 
 func (jobs *Jobs) PrintJobs() {
-	fmt.Fprintf(os.Stderr, fmt.Sprintf("No.\tState\tPID\tCommand\n%s\n", strings.Repeat("-", 50)))
+	if len(jobs.JobList) <= 0 {return}
+	fmt.Fprintf(os.Stderr, fmt.Sprintf("No.\tState\tPID\tCommand\n%s\n", strings.Repeat("-", 100)))
 	for idx, job := range jobs.JobList {
-		fmt.Fprintf(os.Stderr, "%d. %d [%d] %s\n", idx, job.State, job.Pid, job.Cmd)
+		fmt.Fprintf(os.Stderr, "%d.\t%d\t[%d]\t%s\n", idx, job.State, job.Pid, job.Cmd)
 	}
 }

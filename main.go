@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	j "shell/jobs"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -20,44 +20,41 @@ const (
 	STP = 3
 )
 
-var mutex sync.Mutex
+func overwriteFileDescriptor(cmd *exec.Cmd) {
+	cmd.Stdout = os.Stdout
+	cmd.Stdin = os.Stdin
+	cmd.Stderr = os.Stderr
+}
 
 func eval(line *string) {
-
 	parsedLine, bg := parseline(line)
 
 	isBuiltIn := handleBuiltIns(&parsedLine)
-	if isBuiltIn {return}
-	// dir := "/bin/"
+	if isBuiltIn {
+		return
+	}
+
 	if bg {
-		// cmd := exec.Command(parsedLine[0], parsedLine...)
-		// cmd.Stdout = os.Stdout
+		cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine...)
 
-		// err := cmd.Start()r
+		err := cmd.Start()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to initiate background job | %s\n", cmd.String())
+		}
+		pid := cmd.Process.Pid
+		newJob := j.Job{
+			Pid:   pid,
+			Cmd:   cmd.String(),
+			State: BG,
+		}
 
-		// pid := cmd.Process.Pid
-		// newJob := j.Job{
-		// 	Pid:   pid,
-		// 	Cmd:   parsedLine[0],
-		// 	State: 1,
-		// }
-		// jobs.AddJob(newJob)
-		// process, _ := os.FindProcess(pid)
-
-		// if err != nil {
-
-		// }
-		// return
+		jobs.AddJob(newJob)
+		fmt.Fprintf(os.Stderr, "+1 [%d] %s\n", pid, cmd.String())
+		return
 	}
 
 	cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine[1:]...) //dir+"/"+parsedLine[0]
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	// cmd.SysProcAttr = &syscall.SysProcAttr{
-	// 	Setpgid: true,
-	//     Pgid: 0,
-	// }
+	overwriteFileDescriptor(cmd)
 
 	err := cmd.Start()
 	if err != nil {
@@ -65,11 +62,6 @@ func eval(line *string) {
 		return
 	}
 	pid := cmd.Process.Pid
-
-	// go func (exec *exec.Cmd) {
-	// 	err := cmd.Wait()
-	// 	if err != nil {fmt.Println(err)}
-	// }(cmd)
 
 	jobs.AddJob(j.Job{
 		Pid:   pid,
@@ -91,11 +83,13 @@ func waitForeground(pid int) {
 	}
 
 	for job.State == FG && job.Pid == pid {
-		time.Sleep(time.Second * 1) //keep asking for update every 500 ms
+		time.Sleep(time.Millisecond * 500) //keep asking for update every 500 ms
 
 		job = jobs.GetForegroundJob()
 
-		if job == nil {return}
+		if job == nil {
+			return
+		}
 		if job.State == STP {
 			return
 		}
@@ -123,8 +117,13 @@ func handleBuiltIns(parsedLine *[]string) bool {
 		return true
 	}
 
-	if firstCmd == "jobs" {
+	if firstCmd == "jobs" || firstCmd == "ps" {
 		jobs.PrintJobs()
+		return true
+	}
+
+	if firstCmd == "fg" || firstCmd == "bg" {
+		startFgBg(parsedLine)
 		return true
 	}
 
@@ -132,6 +131,15 @@ func handleBuiltIns(parsedLine *[]string) bool {
 	}
 
 	return false
+}
+
+func startFgBg(parsedLine *[]string) {
+	if (*parsedLine)[0] == "fg" {
+		
+	}
+	if (*parsedLine)[0] == "bg" {
+		
+	}
 }
 
 func handleSIGCHLD(sig os.Signal) {
@@ -143,6 +151,7 @@ func handleSIGCHLD(sig os.Signal) {
 			return
 		}
 		job = jobs.GetJob(pid)
+		if job == nil {return}
 
 		if status.Exited() {
 			jobs.RemoveJob(job)
@@ -170,9 +179,12 @@ func handleSIGCHLD(sig os.Signal) {
 
 func handleSigInt() {
 	job := jobs.GetForegroundJob()
-	// if job == nil {
-	// 	return
-	// }
+	if job == nil {
+		if len(jobs.JobList) <= 0 {
+			os.Exit(0)
+		}
+		return
+	}
 
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
@@ -183,10 +195,8 @@ func handleSigInt() {
 
 func handleSigStop() {
 	job := jobs.GetForegroundJob()
-	// if job == nil {
-	// 	return
-	// }
-	fmt.Println("GOT SIGSTOP")
+	if job == nil {return}
+
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
 		return
@@ -217,11 +227,11 @@ func main() {
 	signal.Notify(sig, syscall.SIGCHLD, syscall.SIGINT, syscall.SIGTSTP)
 	go handleSig(sig)
 
+	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		line := ""
 		fmt.Fprintf(os.Stderr, "> ")
-		fmt.Scanln(&line)
-
+		scanner.Scan()
+		line := scanner.Text()
 		if line == "" {
 			continue
 		}
