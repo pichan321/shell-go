@@ -26,34 +26,38 @@ func eval(line *string) {
 
 	parsedLine, bg := parseline(line)
 
-	handleBuiltIns(&parsedLine)
+	isBuiltIn := handleBuiltIns(&parsedLine)
+	if isBuiltIn {return}
 	// dir := "/bin/"
 	if bg {
-		cmd := exec.Command(parsedLine[0], parsedLine...)
-		cmd.Stdout = os.Stdout
+		// cmd := exec.Command(parsedLine[0], parsedLine...)
+		// cmd.Stdout = os.Stdout
 
-		err := cmd.Start()
+		// err := cmd.Start()r
 
-		pid := cmd.Process.Pid
-		newJob := j.Job{
-			Pid:   pid,
-			Cmd:   parsedLine[0],
-			State: 1,
-		}
-		jobs.AddJob(newJob)
-		process, _ := os.FindProcess(pid)
-		process.Wait()
+		// pid := cmd.Process.Pid
+		// newJob := j.Job{
+		// 	Pid:   pid,
+		// 	Cmd:   parsedLine[0],
+		// 	State: 1,
+		// }
+		// jobs.AddJob(newJob)
+		// process, _ := os.FindProcess(pid)
 
-		if err != nil {
+		// if err != nil {
 
-		}
-		return
+		// }
+		// return
 	}
 
 	cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine[1:]...) //dir+"/"+parsedLine[0]
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	// cmd.SysProcAttr = &syscall.SysProcAttr{
+	// 	Setpgid: true,
+	//     Pgid: 0,
+	// }
 
 	err := cmd.Start()
 	if err != nil {
@@ -62,35 +66,36 @@ func eval(line *string) {
 	}
 	pid := cmd.Process.Pid
 
-	// if pid == 0 {
-	
-	// }
+	// go func (exec *exec.Cmd) {
+	// 	err := cmd.Wait()
+	// 	if err != nil {fmt.Println(err)}
+	// }(cmd)
 
 	jobs.AddJob(j.Job{
 		Pid:   pid,
 		Cmd:   cmd.String(),
 		State: FG,
 	})
+
 	waitForeground(pid)
 }
 
 func waitForeground(pid int) {
-	_, err := os.FindProcess(pid)
+	process, err := os.FindProcess(pid)
 	if err != nil {
 		return //not a valid process
 	}
-	job := jobs.GetJob(pid)
-	if job == nil {
+	job := jobs.GetForegroundJob()
+	if job.Pid != process.Pid {
 		return
 	}
 
 	for job.State == FG && job.Pid == pid {
 		time.Sleep(time.Second * 1) //keep asking for update every 500 ms
 
-		job := jobs.GetJob(pid)
-		if job == nil {
-			return
-		}
+		job = jobs.GetForegroundJob()
+
+		if job == nil {return}
 		if job.State == STP {
 			return
 		}
@@ -107,44 +112,51 @@ func parseline(line *string) ([]string, bool) {
 	return splits, false
 }
 
-func handleBuiltIns(parsedLine *[]string) {
+func handleBuiltIns(parsedLine *[]string) bool {
 	if len(*parsedLine) <= 0 {
-		return
+		return false
 	}
 
 	firstCmd := string((*parsedLine)[0])
 	if firstCmd == "quit" {
 		os.Exit(0)
+		return true
 	}
 
 	if firstCmd == "jobs" {
 		jobs.PrintJobs()
+		return true
 	}
 
 	if firstCmd == "history" {
 	}
+
+	return false
 }
 
 func handleSIGCHLD(sig os.Signal) {
 	var status syscall.WaitStatus
+	var job *j.Job
 	for {
 		pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG|syscall.WUNTRACED, nil)
 		if pid <= 0 || err != nil {
 			return
 		}
-		job := jobs.GetJob(pid)
+		job = jobs.GetJob(pid)
 
-		if status.Exited() || status.Signaled() {
-			jobs.RemoveJob(*job)
-			fmt.Println("removed", jobs)
+		if status.Exited() {
+			jobs.RemoveJob(job)
+			return
+		}
+
+		if status.Signaled() {
+			fmt.Fprintf(os.Stderr, "Terminated by signal\n")
+			jobs.RemoveJob(job)
 			return
 		}
 
 		if status.Stopped() {
-			fmt.Println("Before", job)
-			// job.State = 3
-			job.ChangeState(STP)
-			fmt.Println("After", job)
+			jobs.ChangeState(job, BG)
 			return
 		}
 
@@ -156,11 +168,11 @@ func handleSIGCHLD(sig os.Signal) {
 
 }
 
-func handleSigIntSigKill() {
+func handleSigInt() {
 	job := jobs.GetForegroundJob()
-	if job == nil {
-		return
-	}
+	// if job == nil {
+	// 	return
+	// }
 
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
@@ -171,15 +183,16 @@ func handleSigIntSigKill() {
 
 func handleSigStop() {
 	job := jobs.GetForegroundJob()
-	if job == nil {
-		return
-	}
-
+	// if job == nil {
+	// 	return
+	// }
+	fmt.Println("GOT SIGSTOP")
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
 		return
 	}
-	syscall.Kill(process.Pid, syscall.SIGTSTP)
+
+	process.Signal(syscall.SIGTSTP)
 }
 
 func handleSig(sig chan os.Signal) {
@@ -188,7 +201,7 @@ func handleSig(sig chan os.Signal) {
 		case incoming := <-sig:
 			switch incoming {
 			case syscall.SIGINT:
-				handleSigIntSigKill()
+				handleSigInt()
 			case syscall.SIGTSTP:
 				handleSigStop()
 			case syscall.SIGCHLD:
@@ -199,10 +212,9 @@ func handleSig(sig chan os.Signal) {
 	}
 }
 
-
 func main() {
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGCHLD, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTSTP)
+	signal.Notify(sig, syscall.SIGCHLD, syscall.SIGINT, syscall.SIGTSTP)
 	go handleSig(sig)
 
 	for {
