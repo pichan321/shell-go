@@ -3,12 +3,13 @@ package jobs
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
 type Job struct {
 	Pid   int
-	Cmd   string
+	Cmd   *exec.Cmd
 	State int
 }
 
@@ -45,8 +46,8 @@ func (jobs *Jobs) RemoveJob(jobToRemove *Job) {
 
 func (jobs *Jobs) ChangeState(jobToUpdate *Job, newState int) {
 	for idx, job := range jobs.JobList {
-		if job == *jobToUpdate {
-			jobs.JobList[idx].State = 3
+		if job.Pid == (*jobToUpdate).Pid {
+			jobs.JobList[idx].State = newState
 		}
 	}
 }

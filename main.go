@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	j "shell/jobs"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,10 +22,16 @@ const (
 	STP = 3
 )
 
-func overwriteFileDescriptor(cmd *exec.Cmd) {
+func overwriteFileDescriptorToFg(cmd *exec.Cmd) {
 	cmd.Stdout = os.Stdout
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
+}
+
+func overwriteFileDescriptorToBg(cmd *exec.Cmd) {
+	cmd.Stdout = nil
+	cmd.Stdin = nil
+	cmd.Stderr = nil
 }
 
 func eval(line *string) {
@@ -44,7 +52,7 @@ func eval(line *string) {
 		pid := cmd.Process.Pid
 		newJob := j.Job{
 			Pid:   pid,
-			Cmd:   cmd.String(),
+			Cmd:   cmd,
 			State: BG,
 		}
 
@@ -54,7 +62,7 @@ func eval(line *string) {
 	}
 
 	cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine[1:]...) //dir+"/"+parsedLine[0]
-	overwriteFileDescriptor(cmd)
+	overwriteFileDescriptorToFg(cmd)
 
 	err := cmd.Start()
 	if err != nil {
@@ -65,7 +73,7 @@ func eval(line *string) {
 
 	jobs.AddJob(j.Job{
 		Pid:   pid,
-		Cmd:   cmd.String(),
+		Cmd:   cmd,
 		State: FG,
 	})
 
@@ -134,12 +142,58 @@ func handleBuiltIns(parsedLine *[]string) bool {
 }
 
 func startFgBg(parsedLine *[]string) {
+	if len(*parsedLine) < 2 {
+		fmt.Fprintf(os.Stderr, "Command: fg/bg require a job's pid\n")
+		return
+	}
+
+	pid, err := strconv.ParseInt((*parsedLine)[1], 10, 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Job id must be an integer\n")
+		return
+	}
+
+	job := jobs.GetJob(int(pid))
+	if job == nil {
+		fmt.Fprintf(os.Stderr, "No job with the specified job id was found\n")
+		return
+	}
+
 	if (*parsedLine)[0] == "fg" {
-		
+		startForeground(job)
 	}
 	if (*parsedLine)[0] == "bg" {
-		
+		startBackground(job)
 	}
+}
+
+func startForeground(job *j.Job) {
+	jobs.ChangeState(job, FG)
+	overwriteFileDescriptorToFg(job.Cmd)
+	restartProcess(job)
+}
+
+func startBackground(job *j.Job) {
+	jobs.ChangeState(job, BG)
+	overwriteFileDescriptorToBg(job.Cmd)
+	restartProcess(job)
+}
+
+func restartProcess(job *j.Job) {
+	process, err := getProcess(job.Pid)
+	if err != nil {
+		return
+	}
+	process.Signal(syscall.SIGCONT)
+}
+
+func getProcess(pid int) (*os.Process, error) {
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return new(os.Process), errors.New("could not find the process")
+	}
+
+	return process, nil
 }
 
 func handleSIGCHLD(sig os.Signal) {
@@ -151,7 +205,9 @@ func handleSIGCHLD(sig os.Signal) {
 			return
 		}
 		job = jobs.GetJob(pid)
-		if job == nil {return}
+		if job == nil {
+			return
+		}
 
 		if status.Exited() {
 			jobs.RemoveJob(job)
@@ -174,7 +230,6 @@ func handleSIGCHLD(sig os.Signal) {
 		}
 
 	}
-
 }
 
 func handleSigInt() {
@@ -195,7 +250,9 @@ func handleSigInt() {
 
 func handleSigStop() {
 	job := jobs.GetForegroundJob()
-	if job == nil {return}
+	if job == nil {
+		return
+	}
 
 	process, err := os.FindProcess(job.Pid)
 	if err != nil {
