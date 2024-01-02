@@ -15,6 +15,21 @@ import (
 )
 
 var jobs *j.Jobs = j.InitJobs()
+var history = []string{}
+
+func addHistory(newEntry string) {
+	history = append(history, newEntry)
+}
+
+func executeFromHistory(parsedLine *[]string) bool {
+	for i := len(history) - 1; i >= 0; i-- {
+		if strings.Contains(history[i], strings.Join(*parsedLine, " ")) {
+			eval(&history[i])
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	FG  = 1
@@ -37,8 +52,16 @@ func overwriteFileDescriptorToBg(cmd *exec.Cmd) {
 func eval(line *string) {
 	parsedLine, bg := parseline(line)
 
+	if parsedLine[0][0] == '!' {
+		historyExe := executeFromHistory(&parsedLine)
+		if historyExe {return}
+	}
+	
 	isBuiltIn := handleBuiltIns(&parsedLine)
 	if isBuiltIn {
+		if parsedLine[0] != "history" {
+			addHistory(parsedLine[0])
+		}
 		return
 	}
 
@@ -136,6 +159,10 @@ func handleBuiltIns(parsedLine *[]string) bool {
 	}
 
 	if firstCmd == "history" {
+		for _, val := range history {
+			fmt.Fprintln(os.Stderr, val)
+		}
+		return true
 	}
 
 	return false
