@@ -53,25 +53,25 @@ func eval(line *string) {
 	parsedLine, bg := parseline(line)
 
 	if parsedLine[0][0] == '!' {
+		parsedLine[0] = parsedLine[0][1:]
 		historyExe := executeFromHistory(&parsedLine)
 		if historyExe {return}
 	}
-	
+
 	isBuiltIn := handleBuiltIns(&parsedLine)
 	if isBuiltIn {
-		if parsedLine[0] != "history" {
-			addHistory(parsedLine[0])
-		}
+		addHistory(parsedLine[0])
 		return
 	}
 
 	if bg {
-		cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine...)
+		cmd := exec.Command("./commands/"+parsedLine[0], parsedLine[1:]...)
 
 		err := cmd.Start()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "unable to initiate background job | %s\n", cmd.String())
 		}
+		addHistory(parsedLine[0])
 		pid := cmd.Process.Pid
 		newJob := j.Job{
 			Pid:   pid,
@@ -84,7 +84,7 @@ func eval(line *string) {
 		return
 	}
 
-	cmd := exec.Command("/Users/pichan/Desktop/projects/shell/hello", parsedLine[1:]...) //dir+"/"+parsedLine[0]
+	cmd := exec.Command("./commands/" + parsedLine[0], parsedLine[1:]...) //dir+"/"+parsedLine[0]
 	overwriteFileDescriptorToFg(cmd)
 
 	err := cmd.Start()
@@ -92,6 +92,7 @@ func eval(line *string) {
 		fmt.Println(err)
 		return
 	}
+	addHistory(parsedLine[0])
 	pid := cmd.Process.Pid
 
 	jobs.AddJob(j.Job{
@@ -148,7 +149,7 @@ func handleBuiltIns(parsedLine *[]string) bool {
 		return true
 	}
 
-	if firstCmd == "jobs" || firstCmd == "ps" {
+	if firstCmd == "jobs" || firstCmd == "ps"{
 		jobs.PrintJobs()
 		return true
 	}
